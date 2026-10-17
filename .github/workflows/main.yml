@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Web App
 
 on:
   push:
@@ -8,45 +8,38 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # needed to attach the APK to a GitHub Release on tags
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          distribution: temurin
-          java-version: '17'
+          node-version: 20
+          cache: 'npm'
 
-      # No Gradle wrapper is committed, so install Gradle directly
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Add google-services.json from secret
-        env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: |
-          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
-            echo "::error::Missing secret GOOGLE_SERVICES_JSON (base64 of google-services.json)"
-            exit 1
-          fi
-          echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
+      - name: Typecheck & Lint
+        run: npm run lint
 
-      - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+      - name: Build web app
+        run: npm run build
 
-      - name: Upload APK artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FamilyLocator-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: FamilyLocator-web-dist
+          path: dist/
 
-      - name: Attach APK to release (tags only)
+      - name: Attach build to release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/debug/*.apk
+          files: dist/**
