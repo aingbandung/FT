@@ -33,12 +33,46 @@ jobs:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           mkdir -p app
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "Applying google-services.json from secret..."
-            echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
-          else
-            echo "GOOGLE_SERVICES_JSON secret not set. Using existing app/google-services.json template."
-          fi
+          python3 - << 'EOF'
+          import os, base64, json, sys
+
+          raw = os.environ.get("GOOGLE_SERVICES_JSON", "").strip()
+          target_path = "app/google-services.json"
+
+          if not raw:
+              print("GOOGLE_SERVICES_JSON secret not provided. Using default template.")
+              sys.exit(0)
+
+          # 1. Try parsing as direct raw JSON
+          try:
+              data = json.loads(raw)
+              with open(target_path, "w", encoding="utf-8") as f:
+                  json.dump(data, f, indent=2)
+              print("Successfully applied google-services.json from raw JSON secret.")
+              sys.exit(0)
+          except Exception:
+              pass
+
+          # 2. Try decoding as base64 string
+          try:
+              # Remove whitespace/linebreaks that can break base64 decoding
+              cleaned = "".join(raw.split())
+              # Fix padding if missing
+              missing_padding = len(cleaned) % 4
+              if missing_padding:
+                  cleaned += "=" * (4 - missing_padding)
+
+              decoded_bytes = base64.b64decode(cleaned)
+              decoded_text = decoded_bytes.decode("utf-8")
+              data = json.loads(decoded_text)
+
+              with open(target_path, "w", encoding="utf-8") as f:
+                  json.dump(data, f, indent=2)
+              print("Successfully decoded base64 and applied google-services.json.")
+              sys.exit(0)
+          except Exception as e:
+              print(f"::warning::Could not decode secret ({e}). Retaining default app/google-services.json template.")
+          EOF
 
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
