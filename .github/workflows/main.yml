@@ -28,50 +28,82 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Prepare google-services.json
+      - name: Ensure google-services.json is present
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           mkdir -p app
+          mkdir -p app/src/debug
           python3 - << 'EOF'
-          import os, base64, json, sys
+          import os, base64, json, shutil
 
           raw = os.environ.get("GOOGLE_SERVICES_JSON", "").strip()
-          target_path = "app/google-services.json"
+          target = "app/google-services.json"
+          debug_target = "app/src/debug/google-services.json"
+          applied = False
 
-          if not raw:
-              print("GOOGLE_SERVICES_JSON secret not provided. Using default template.")
-              sys.exit(0)
+          # 1. Try raw JSON from secret
+          if raw:
+              try:
+                  data = json.loads(raw)
+                  with open(target, "w", encoding="utf-8") as f:
+                      json.dump(data, f, indent=2)
+                  print("Applied google-services.json from raw JSON secret.")
+                  applied = True
+              except Exception:
+                  pass
 
-          # 1. Try parsing as direct raw JSON
-          try:
-              data = json.loads(raw)
-              with open(target_path, "w", encoding="utf-8") as f:
-                  json.dump(data, f, indent=2)
-              print("Successfully applied google-services.json from raw JSON secret.")
-              sys.exit(0)
-          except Exception:
-              pass
+          # 2. Try base64 from secret
+          if raw and not applied:
+              try:
+                  cleaned = "".join(raw.split())
+                  missing_padding = len(cleaned) % 4
+                  if missing_padding:
+                      cleaned += "=" * (4 - missing_padding)
+                  decoded = base64.b64decode(cleaned).decode("utf-8")
+                  data = json.loads(decoded)
+                  with open(target, "w", encoding="utf-8") as f:
+                      json.dump(data, f, indent=2)
+                  print("Applied google-services.json from base64 secret.")
+                  applied = True
+              except Exception as e:
+                  print(f"Could not parse secret as base64 ({e}).")
 
-          # 2. Try decoding as base64 string
-          try:
-              # Remove whitespace/linebreaks that can break base64 decoding
-              cleaned = "".join(raw.split())
-              # Fix padding if missing
-              missing_padding = len(cleaned) % 4
-              if missing_padding:
-                  cleaned += "=" * (4 - missing_padding)
+          # 3. Fallback: If not applied and file missing or empty, generate valid template
+          if not applied:
+              if os.path.exists(target) and os.path.getsize(target) > 50:
+                  print("Using existing repository app/google-services.json.")
+              else:
+                  print("Generating default template app/google-services.json...")
+                  default_config = {
+                      "project_info": {
+                          "project_number": "123456789012",
+                          "project_id": "family-locator-mock",
+                          "storage_bucket": "family-locator-mock.appspot.com"
+                      },
+                      "client": [
+                          {
+                              "client_info": {
+                                  "mobilesdk_app_id": "1:123456789012:android:abcdef0123456789",
+                                  "android_client_info": {
+                                      "package_name": "com.example.familylocator"
+                                  }
+                              },
+                              "oauth_client": [],
+                              "api_key": [{"current_key": "AIzaSyMockKeyForBuildingApk123456789"}],
+                              "services": {"appinvite_service": {"other_platform_oauth_client": []}}
+                          }
+                      ],
+                      "configuration_version": "1"
+                  }
+                  with open(target, "w", encoding="utf-8") as f:
+                      json.dump(default_config, f, indent=2)
+                  print("Generated default app/google-services.json.")
 
-              decoded_bytes = base64.b64decode(cleaned)
-              decoded_text = decoded_bytes.decode("utf-8")
-              data = json.loads(decoded_text)
-
-              with open(target_path, "w", encoding="utf-8") as f:
-                  json.dump(data, f, indent=2)
-              print("Successfully decoded base64 and applied google-services.json.")
-              sys.exit(0)
-          except Exception as e:
-              print(f"::warning::Could not decode secret ({e}). Retaining default app/google-services.json template.")
+          # Mirror to debug directory searched by Google Services plugin
+          shutil.copyfile(target, debug_target)
+          print(f"Verified: {target} (size: {os.path.getsize(target)} bytes)")
+          print(f"Verified: {debug_target} (size: {os.path.getsize(debug_target)} bytes)")
           EOF
 
       - name: Build debug APK
