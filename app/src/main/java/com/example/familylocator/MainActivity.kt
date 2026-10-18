@@ -31,7 +31,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import androidx.preference.PreferenceManager
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.GeoPoint
@@ -42,7 +41,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Configuration.getInstance().apply {
-            load(this@MainActivity, PreferenceManager.getDefaultSharedPreferences(this@MainActivity))
+            load(this@MainActivity, getSharedPreferences("osmdroid_prefs", MODE_PRIVATE))
             userAgentValue = packageName
         }
         setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { App() } } }
